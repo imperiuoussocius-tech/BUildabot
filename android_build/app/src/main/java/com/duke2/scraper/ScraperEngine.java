@@ -5,6 +5,217 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.InputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.Date;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+
+public class ScraperEngine {
+
+    private static final List<String> IMAGE_EXTENSIONS = Arrays.asList(
+            ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tiff", ".avif"
+    );
+
+    private static final List<String> VIDEO_EXTENSIONS = Arrays.asList(
+            ".mp4", ".webm", ".mkv", ".flv", ".avi", ".mov", ".m4v", ".3gp", ".ogv"
+    );
+
+    private static final List<String> AUDIO_EXTENSIONS = Arrays.asList(
+            ".mp3", ".ogg", ".wav", ".flac", ".aac", ".m4a", ".opus", ".wma"
+    );
+
+    public interface ScraperCallback {
+        void onProgress(String message);
+        void onComplete(String galleryPath);
+        void onError(String error);
+    }
+
+    private OkHttpClient httpClient;
+    private Set<String> visitedUrls = Collections.synchronizedSet(new HashSet<>());
+    private List<String> downloadedMedia = Collections.synchronizedList(new ArrayList<>());
+    private File downloadDir;
+    private ScraperCallback callback;
+    private volatile boolean isRunning = false;
+
+    public ScraperEngine(ScraperCallback callback) {
+        this.callback = callback;
+        this.httpClient = new OkHttpClient.Builder().build();
+        this.downloadDir = new File(Environment.getExternalStorageDirectory(), "Download/Duke2");
+        if (!downloadDir.exists()) downloadDir.mkdirs();
+    }
+
+    public boolean isRunning() { return isRunning; }
+    public void stop() { isRunning = false; }
+
+    public void scrape(String startUrl, int maxDepth, int maxFiles) {
+        new Thread(() -> {
+            try {
+                isRunning = true;
+                callback.onProgress("Starting scraper...");
+                downloadedMedia.clear();
+                visitedUrls.clear();
+                scrapeUrl(startUrl, maxDepth, maxFiles);
+                callback.onProgress("Generating gallery...");
+                String gallery = generateGallery();
+                if (gallery != null) callback.onComplete(gallery);
+                else callback.onError("Failed to generate gallery");
+            } catch (Exception e) {
+                callback.onError("Error: " + e.getMessage());
+            } finally {
+                isRunning = false;
+            }
+        }).start();
+    }
+
+    private void scrapeUrl(String url, int depth, int maxFiles) {
+        if (!isRunning || depth <= 0 || downloadedMedia.size() >= maxFiles) return;
+        if (visitedUrls.contains(url)) return;
+        visitedUrls.add(url);
+        try {
+            callback.onProgress("Crawling: " + url + " (Depth: " + depth + ")");
+            Document doc = fetchDocument(url);
+            if (doc == null) return;
+
+            Elements images = doc.select("img[src], img[data-src]");
+            for (Element img : images) {
+                if (downloadedMedia.size() >= maxFiles) break;
+                String src = img.hasAttr("src") ? img.attr("src") : img.attr("data-src");
+                if (src == null || src.isEmpty()) continue;
+                String mediaUrl = resolveUrl(url, src);
+                downloadMedia(mediaUrl);
+            }
+
+            // Follow simple same-domain links
+            if (depth > 1) {
+                Elements links = doc.select("a[href]");
+                String domain = extractDomain(url);
+                for (Element a : links) {
+                    if (downloadedMedia.size() >= maxFiles) break;
+                    String href = a.attr("href");
+                    String next = resolveUrl(url, href);
+                    if (next != null && next.startsWith("http") && domain.equals(extractDomain(next)) && !visitedUrls.contains(next)) {
+                        scrapeUrl(next, depth - 1, maxFiles);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // ignore individual page errors
+        }
+    }
+
+    private Document fetchDocument(String url) {
+        try {
+            if (url != null && url.startsWith("file://")) {
+                String path = url.substring("file://".length());
+                byte[] data = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
+                String html = new String(data, StandardCharsets.UTF_8);
+                return Jsoup.parse(html, "");
+            }
+            Request req = new Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build();
+            try (Response resp = httpClient.newCall(req).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null) return null;
+                String body = resp.body().string();
+                return Jsoup.parse(body, url);
+            }
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private void downloadMedia(String mediaUrl) {
+        if (mediaUrl == null || mediaUrl.isEmpty()) return;
+        try {
+            Request req = new Request.Builder().url(mediaUrl).header("User-Agent", "Mozilla/5.0").build();
+            try (Response resp = httpClient.newCall(req).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null) return;
+                String filename = new java.io.File(new java.net.URL(mediaUrl).getPath()).getName();
+                if (filename == null || filename.isEmpty()) filename = "media_" + System.currentTimeMillis();
+                File out = new File(downloadDir, filename);
+                try (InputStream in = resp.body().byteStream(); FileOutputStream fos = new FileOutputStream(out)) {
+                    byte[] buf = new byte[8192]; int r;
+                    while ((r = in.read(buf)) != -1) fos.write(buf, 0, r);
+                }
+                downloadedMedia.add(out.getAbsolutePath());
+                callback.onProgress("Saved: " + out.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+    }
+
+    private String generateGallery() {
+        try {
+            File gallery = new File(downloadDir, "gallery.html");
+            StringBuilder sb = new StringBuilder();
+            sb.append("<html><head><meta charset=\"utf-8\"><title>Gallery</title></head><body>\n");
+            for (String p : downloadedMedia) {
+                String rel = p;
+                if (p.toLowerCase().matches(".*\\.(jpg|jpeg|png|gif|webp|bmp|svg)$")) {
+                    sb.append("<div><img src=\"file://" + rel + "\" style=\"max-width:300px\"><p>" + rel + "</p></div>\n");
+                } else {
+                    sb.append("<div><a href=\"file://" + rel + "\">" + rel + "</a></div>\n");
+                }
+            }
+            sb.append("</body></html>");
+            java.nio.file.Files.write(gallery.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+            return gallery.getAbsolutePath();
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private String resolveUrl(String base, String rel) {
+        try {
+            if (rel == null) return base;
+            java.net.URI baseUri = new java.net.URI(base);
+            java.net.URI resolved = baseUri.resolve(rel);
+            return resolved.toString();
+        } catch (Exception e) {
+            return rel;
+        }
+    }
+
+    private String extractDomain(String url) {
+        try {
+            java.net.URL u = new java.net.URL(url);
+            return u.getHost();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String generateFilename(String url) {
+        try {
+            String filename = url.substring(url.lastIndexOf('/') + 1);
+            if (filename.contains("?")) filename = filename.substring(0, filename.indexOf('?'));
+            if (filename.isEmpty() || filename.length() > 120) filename = "media_" + System.currentTimeMillis();
+            return filename;
+        } catch (Exception e) {
+            return "media_" + System.currentTimeMillis();
+        }
+    }
+
+}
+
+import android.os.Environment;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
