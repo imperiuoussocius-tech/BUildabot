@@ -5,164 +5,57 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import java.io.*;
-import java.net.URL;
-import java.net.URLConnection;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.*;
-import java.util.concurrent.*;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
-import okhttp3.Interceptor;
 
 public class ScraperEngine {
-    
-    private static final List<String> IMAGE_EXTENSIONS = Arrays.asList(
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tiff", ".avif"
-    );
-    
-    private static final List<String> VIDEO_EXTENSIONS = Arrays.asList(
-        ".mp4", ".webm", ".mkv", ".flv", ".avi", ".mov", ".m4v", ".3gp", ".ogv"
-    );
-    
-    private static final List<String> AUDIO_EXTENSIONS = Arrays.asList(
-        ".mp3", ".ogg", ".wav", ".flac", ".aac", ".m4a", ".opus", ".wma"
-    );
-    
-    private static final List<String> LAZY_ATTRIBUTES = Arrays.asList(
-        "data-src", "data-lazy-src", "data-original", "data-url", "data-full",
-        "data-large", "data-hd", "data-source", "data-poster", "data-video",
-        "data-audio", "data-file", "data-thumb", "data-preview", "data-media",
-        "ng-src", "v-lazy", "srcset"
-    );
-    
-    private static final String[] CHROME_VERSIONS = {
-        "120", "121", "122", "123", "124", "125", "126", "127", "128", "129", "130", "131"
-    };
-    
-    private static final String[] USER_AGENTS = {
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
-    };
-    
+
+    public interface ScraperCallback {
+        void onProgress(String message);
+        void onComplete(String galleryPath);
+        void onError(String error);
+    }
+
     private OkHttpClient httpClient;
-    private Set<String> visitedUrls;
-    private List<String> downloadedMedia;
+    private Set<String> visitedUrls = Collections.synchronizedSet(new HashSet<>());
+    private List<String> downloadedMedia = Collections.synchronizedList(new ArrayList<>());
     private File downloadDir;
     private ScraperCallback callback;
-    private boolean isRunning = false;
-    private String bypassMode = "standard";
-    
-    public interface ScraperCallback {
-        void onProgress(String message);
-        void onComplete(String galleryPath);
-        void onError(String error);
-    }
-    
-    public ScraperEngine(ScraperCallback callback) {
-        this(callback, "standard");
-    }
-    
-    public ScraperEngine(ScraperCallback callback, String bypassMode) {
-        this.callback = callback;
-        this.bypassMode = bypassMode;
-        this.httpClient = createAdvancedHttpClient();
-        this.visitedUrls = Collections.synchronizedSet(new HashSet<>());
-        this.downloadedMedia = Collections.synchronizedList(new ArrayList<>());
-        
-        // Create download directory
-        this.downloadDir = new File(Environment.getExternalStorageDirectory(), "Download/Duke2");
-        if (!downloadDir.exists()) {
-            downloadDir.mkdirs();
-        }
-    }
-    
-    private OkHttpClient createAdvancedHttpClient() {
-        OkHttpClient.Builder builder = new OkHttpClient.Builder()
-            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true);
-        
-        // Add header rotation interceptor
-        builder.addNetworkInterceptor(chain -> {
-            Request original = chain.request();
-            Request newRequest = original.newBuilder()
-                .header("User-Agent", getRandomUserAgent())
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .header("Accept-Encoding", "gzip, deflate, br")
-                .header("DNT", "1")
-                .header("Connection", "keep-alive")
-                .header("Upgrade-Insecure-Requests", "1")
-                .header("Sec-Fetch-Dest", "document")
-                .header("Sec-Fetch-Mode", "navigate")
-                .header("Sec-Fetch-Site", "none")
-                }
-            if (filename.isEmpty() || filename.length() > 100) {
-                filename = "media_" + System.currentTimeMillis() + ".tmp";
-            }
-            return filename;
-        } catch (Exception e) {
-            return "media_" + System.currentTimeMillis() + ".tmp";
-        }
-    }
-    
-    public boolean isRunning() {
-        return isRunning;
-    }
-    
-    public void stop() {
-        isRunning = false;
-    }
-}
-    
-    public interface ScraperCallback {
-        void onProgress(String message);
-        void onComplete(String galleryPath);
-        void onError(String error);
-    }
-    
+    private volatile boolean isRunning = false;
+
     public ScraperEngine(ScraperCallback callback) {
         this.callback = callback;
-        this.httpClient = new OkHttpClient.Builder()
-            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .build();
-        this.visitedUrls = Collections.synchronizedSet(new HashSet<>());
-        this.downloadedMedia = Collections.synchronizedList(new ArrayList<>());
-        
-        // Create download directory
+        this.httpClient = new OkHttpClient.Builder().build();
         this.downloadDir = new File(Environment.getExternalStorageDirectory(), "Download/Duke2");
-        if (!downloadDir.exists()) {
-            downloadDir.mkdirs();
-        }
+        if (!downloadDir.exists()) downloadDir.mkdirs();
     }
-    
+
+    public boolean isRunning() { return isRunning; }
+    public void stop() { isRunning = false; }
+
     public void scrape(String startUrl, int maxDepth, int maxFiles) {
         new Thread(() -> {
             try {
                 isRunning = true;
                 callback.onProgress("Starting scraper...");
-                
                 downloadedMedia.clear();
                 visitedUrls.clear();
-                
-                callback.onProgress("Fetching: " + startUrl);
                 scrapeUrl(startUrl, maxDepth, maxFiles);
-                
                 callback.onProgress("Generating gallery...");
-                String galleryPath = generateGallery();
-                
-                if (galleryPath != null) {
-                    callback.onComplete(galleryPath);
-                } else {
-                    callback.onError("Failed to generate gallery");
-                }
+                String gallery = generateGallery();
+                if (gallery != null) callback.onComplete(gallery);
+                else callback.onError("Failed to generate gallery");
             } catch (Exception e) {
                 callback.onError("Error: " + e.getMessage());
             } finally {
@@ -170,74 +63,111 @@ public class ScraperEngine {
             }
         }).start();
     }
-    
+
     private void scrapeUrl(String url, int depth, int maxFiles) {
-        if (!isRunning || depth <= 0 || downloadedMedia.size() >= maxFiles) {
-            return;
-        }
-        
-        if (visitedUrls.contains(url)) {
-            return;
-        }
-        
+        if (!isRunning || depth <= 0 || downloadedMedia.size() >= maxFiles) return;
+        if (visitedUrls.contains(url)) return;
         visitedUrls.add(url);
-        
         try {
             callback.onProgress("Crawling: " + url + " (Depth: " + depth + ")");
-            
             Document doc = fetchDocument(url);
             if (doc == null) return;
-            
-            // Extract images
+
             Elements images = doc.select("img");
             for (Element img : images) {
                 if (downloadedMedia.size() >= maxFiles) break;
-                
-                String src = img.attr("src");
-                if (src.isEmpty()) src = img.attr("data-src");
-                if (src.isEmpty()) src = img.attr("data-lazy-src");
-                
-                if (!src.isEmpty()) {
-                    String mediaUrl = resolveUrl(url, src);
-                    downloadMedia(mediaUrl, "image");
-                }
+                String src = img.hasAttr("src") ? img.attr("src") : img.attr("data-src");
+                if (src == null || src.isEmpty()) continue;
+                String mediaUrl = resolveUrl(url, src);
+                downloadMedia(mediaUrl);
             }
-            
-            // Extract videos
-            Elements videos = doc.select("video, [data-video]");
-            for (Element video : videos) {
+
+            // Follow simple links for crawling
+            Elements links = doc.select("a[href]");
+            for (Element a : links) {
                 if (downloadedMedia.size() >= maxFiles) break;
-                
-                String src = video.attr("src");
-                if (src.isEmpty()) src = video.attr("data-video");
-                Element source = video.selectFirst("source");
-                if (source != null && src.isEmpty()) {
-                    src = source.attr("src");
-                }
-                
-                if (!src.isEmpty()) {
-                    String mediaUrl = resolveUrl(url, src);
-                    downloadMedia(mediaUrl, "video");
+                String href = a.attr("href");
+                String next = resolveUrl(url, href);
+                if (next != null && !visitedUrls.contains(next)) {
+                    scrapeUrl(next, depth - 1, maxFiles);
                 }
             }
-            
-            // Extract audio
-            Elements audios = doc.select("audio, [data-audio]");
-            for (Element audio : audios) {
-                if (downloadedMedia.size() >= maxFiles) break;
-                
-                String src = audio.attr("src");
-                if (src.isEmpty()) src = audio.attr("data-audio");
-                Element source = audio.selectFirst("source");
-                if (source != null && src.isEmpty()) {
-                    src = source.attr("src");
+        } catch (Exception e) {
+            // continue on errors
+        }
+    }
+
+    private Document fetchDocument(String url) {
+        try {
+            if (url.startsWith("file://")) {
+                String path = url.substring("file://".length());
+                byte[] data = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
+                String html = new String(data, StandardCharsets.UTF_8);
+                return Jsoup.parse(html);
+            }
+            Request req = new Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build();
+            try (Response resp = httpClient.newCall(req).execute()) {
+                if (!resp.isSuccessful()) return null;
+                String body = resp.body() != null ? resp.body().string() : "";
+                return Jsoup.parse(body, url);
+            }
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private void downloadMedia(String mediaUrl) {
+        if (mediaUrl == null || mediaUrl.isEmpty()) return;
+        try {
+            Request req = new Request.Builder().url(mediaUrl).header("User-Agent", "Mozilla/5.0").build();
+            try (Response resp = httpClient.newCall(req).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null) return;
+                String filename = new java.io.File(new java.net.URL(mediaUrl).getPath()).getName();
+                if (filename == null || filename.isEmpty()) filename = "media_" + System.currentTimeMillis();
+                File out = new File(downloadDir, filename);
+                try (InputStream in = resp.body().byteStream(); FileOutputStream fos = new FileOutputStream(out)) {
+                    byte[] buf = new byte[8192]; int r;
+                    while ((r = in.read(buf)) != -1) fos.write(buf, 0, r);
                 }
-                
-                if (!src.isEmpty()) {
-                    String mediaUrl = resolveUrl(url, src);
-                    downloadMedia(mediaUrl, "audio");
+                downloadedMedia.add(out.getAbsolutePath());
+                callback.onProgress("Saved: " + out.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+    }
+
+    private String generateGallery() {
+        try {
+            File gallery = new File(downloadDir, "gallery.html");
+            StringBuilder sb = new StringBuilder();
+            sb.append("<html><head><meta charset=\"utf-8\"><title>Gallery</title></head><body>\n");
+            for (String p : downloadedMedia) {
+                String rel = p;
+                if (p.toLowerCase().matches(".*\\.(jpg|jpeg|png|gif|webp|bmp|svg)$")) {
+                    sb.append("<div><img src=\"file://" + rel + "\" style=\"max-width:300px\"><p>" + rel + "</p></div>\n");
+                } else {
+                    sb.append("<div><a href=\"file://" + rel + "\">" + rel + "</a></div>\n");
                 }
             }
+            sb.append("</body></html>");
+            java.nio.file.Files.write(gallery.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+            return gallery.getAbsolutePath();
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private String resolveUrl(String base, String rel) {
+        try {
+            java.net.URI baseUri = new java.net.URI(base);
+            java.net.URI resolved = baseUri.resolve(rel);
+            return resolved.toString();
+        } catch (Exception e) {
+            return rel;
+        }
+    }
+}
             
             // Follow links (if depth > 1)
             if (depth > 1 && visitedUrls.size() < 20) {
