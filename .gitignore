@@ -1,0 +1,28 @@
+# Ignore Android build caches and outputs
+android_build/.gradle/
+android_build/build/
+android_build/app/build/
+android_build/app/.cxx/
+android_build/app/build.gradle.kts
+
+# Ignore generated APKs and signing artifacts
+*.apk
+*.apks
+*.apksigner
+*.keystore
+*.jks
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# OS files
+.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
