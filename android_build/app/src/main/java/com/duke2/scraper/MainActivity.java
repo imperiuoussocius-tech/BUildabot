@@ -21,6 +21,9 @@ public class MainActivity extends Activity {
     
     private static final int REQUEST_STORAGE = 100;
     private TextView tvStatus;
+    private int pendingDepth = 1;
+    private int pendingMaxFiles = 50;
+    private String pendingBypass = "standard";
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -159,6 +162,27 @@ public class MainActivity extends Activity {
         sbFiles.setLayoutParams(depthParams);
         layout.addView(sbFiles);
         
+        // Bypass mode selection
+        TextView tvBypass = new TextView(this);
+        tvBypass.setText("Bypass Mode: standard");
+        tvBypass.setTextColor(0xFFE94560);
+        tvBypass.setPadding(0, 0, 0, 10);
+        layout.addView(tvBypass);
+        
+        SeekBar sbBypass = new SeekBar(this);
+        sbBypass.setMax(2);
+        sbBypass.setProgress(0);
+        sbBypass.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int p, boolean b) { 
+                String[] modes = {"standard", "stealth", "cf"};
+                tvBypass.setText("Bypass Mode: " + modes[p]);
+            }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        sbBypass.setLayoutParams(depthParams);
+        layout.addView(sbBypass);
+        
         ScrollView scroll = new ScrollView(this);
         scroll.addView(layout);
         
@@ -170,14 +194,26 @@ public class MainActivity extends Activity {
             } else {
                 int depth = sbDepth.getProgress() + 1;
                 int maxFiles = (sbFiles.getProgress() + 1) * 10;
-                performScraping(url, depth, maxFiles);
+                String[] bypassModes = {"standard", "stealth", "cf"};
+                String bypass = bypassModes[sbBypass.getProgress()];
+                performScraping(url, depth, maxFiles, bypass);
             }
         });
         builder.setNegativeButton("Cancel", null);
         builder.show();
     }
     
-    private void performScraping(String url, int depth, int maxFiles) {
+    private void performScraping(String url, int depth, int maxFiles, String bypass) {
+        // If Cloudflare mode selected, use WebView bypass to capture rendered HTML first
+        if ("cf".equals(bypass)) {
+            pendingDepth = depth;
+            pendingMaxFiles = maxFiles;
+            pendingBypass = bypass;
+            Intent i = new Intent(this, WebViewBypassActivity.class);
+            i.putExtra(WebViewBypassActivity.EXTRA_URL, url);
+            startActivityForResult(i, 200);
+            return;
+        }
         // Show progress dialog
         AlertDialog.Builder progressBuilder = new AlertDialog.Builder(this);
         progressBuilder.setTitle("Scraping in Progress...");
@@ -191,7 +227,7 @@ public class MainActivity extends Activity {
         progressBuilder.setCancelable(false);
         AlertDialog progressDialog = progressBuilder.show();
         
-        // Create and start scraper engine
+        // Create and start scraper engine with bypass mode
         ScraperEngine scraper = new ScraperEngine(new ScraperEngine.ScraperCallback() {
             @Override
             public void onProgress(String message) {
@@ -210,9 +246,50 @@ public class MainActivity extends Activity {
                 progressDialog.dismiss();
                 Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
             }
-        });
+        }, bypass);
         
         scraper.scrape(url, depth, maxFiles);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 200 && resultCode == RESULT_OK && data != null) {
+            String fileUri = data.getStringExtra(WebViewBypassActivity.EXTRA_OUTPUT);
+            if (fileUri != null) {
+                // Start scraping using the captured local file
+                performScrapingWithFile(fileUri, pendingDepth, pendingMaxFiles, pendingBypass);
+            } else {
+                Toast.makeText(this, "Bypass failed or returned no content.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void performScrapingWithFile(String fileUri, int depth, int maxFiles, String bypass) {
+        AlertDialog.Builder progressBuilder = new AlertDialog.Builder(this);
+        progressBuilder.setTitle("Scraping in Progress...");
+        TextView tvProgress = new TextView(this);
+        tvProgress.setText("Initializing scraper (bypass)...");
+        tvProgress.setTextColor(0xFFE0E0E0);
+        tvProgress.setPadding(20, 20, 20, 20);
+        progressBuilder.setView(tvProgress);
+        progressBuilder.setCancelable(false);
+        AlertDialog progressDialog = progressBuilder.show();
+
+        ScraperEngine scraper = new ScraperEngine(new ScraperEngine.ScraperCallback() {
+            @Override
+            public void onProgress(String message) { tvProgress.setText(message); }
+            @Override
+            public void onComplete(String galleryPath) {
+                progressDialog.dismiss();
+                Toast.makeText(MainActivity.this, "Scraping complete! Gallery saved.", Toast.LENGTH_LONG).show();
+                openGallery();
+            }
+            @Override
+            public void onError(String error) { progressDialog.dismiss(); Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show(); }
+        }, bypass);
+
+        scraper.scrape(fileUri, depth, maxFiles);
     }
     
     private void openGallery() {
@@ -270,18 +347,23 @@ public class MainActivity extends Activity {
     
     private void showBypassInfo() {
         new AlertDialog.Builder(this)
-            .setTitle("🛡️ Built-in Protections")
-            .setMessage("Web Scraper includes:\n\n"
-                + "✓ Realistic Browser Headers\n"
-                + "✓ SSL/TLS Support\n"
-                + "✓ JavaScript Rendering (via HTML parsing)\n"
-                + "✓ Media Detection (Images, Videos, Audio)\n"
-                + "✓ Lazy Loading Support\n"
-                + "✓ Rate Limiting\n"
-                + "✓ Connection Timeout Handling\n"
-                + "✓ Automatic Retries\n\n"
-                + "Note: Some advanced protection systems\n"
-                + "may require manual VPN configuration.")
+            .setTitle("🛡️ Bypass Modes")
+            .setMessage("Web Scraper v3.0.2 Bypass Features:\n\n"
+                + "🔹 STANDARD MODE\n"
+                + "  • Basic HTTP requests\n"
+                + "  • Best for: Unprotected sites\n"
+                + "  • Speed: ⚡⚡⚡ Fastest\n\n"
+                + "🔹 STEALTH MODE\n"
+                + "  • User-Agent rotation\n"
+                + "  • Realistic browser headers\n"
+                + "  • Best for: Sites with IP blocking\n"
+                + "  • Speed: ⚡⚡ Moderate\n\n"
+                + "🔹 CF MODE (Cloudflare)\n"
+                + "  • Retry logic for 403 errors\n"
+                + "  • Aggressive header rotation\n"
+                + "  • Best for: Cloudflare protected sites\n"
+                + "  • Speed: ⚡ Slower\n\n"
+                + "💡 Tips: Start with STANDARD, upgrade if blocked")
             .setPositiveButton("OK", null)
             .show();
     }
