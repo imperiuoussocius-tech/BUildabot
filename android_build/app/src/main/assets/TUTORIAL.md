@@ -125,6 +125,19 @@ Cloudflare bypass engine:
 
 ---
 
+## Android WebView Bypass (CF Mode)
+
+If the scraper detects Cloudflare JS challenges or 403 responses, select **CF** bypass mode in the app. The app will:
+
+- Load the page inside a `WebView` (inside the app)
+- Capture the fully rendered HTML after JavaScript execution
+- Save the captured HTML to `Download/Duke2/bypass.html`
+- Feed the local HTML into the built-in scraper to extract media
+
+This mode is slower but effective against JS-based protections.
+
+---
+
 ## Gallery Viewer
 
 After downloading, an interactive HTML gallery is automatically generated.

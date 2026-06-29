@@ -125,6 +125,35 @@ Cloudflare bypass engine:
 
 ---
 
+## Windows EXE Build & Usage
+
+We provide a standalone Windows GUI in the `windows_build` folder which uses `PySimpleGUI` and includes `cloudscraper` for Cloudflare fallback.
+
+Build steps (on Windows):
+
+```cmd
+python -m pip install -r windows_build\requirements.txt
+cd windows_build
+# Run GUI directly
+python gui.py
+# Or build a single-file EXE (PyInstaller)
+pyinstaller --onefile --windowed gui.py
+```
+
+After running, the GUI saves files to `dist_files` and generates `gallery.html` in that folder. Use the "Open Gallery" button to view results.
+
+---
+## Android: Cloudflare WebView Bypass
+
+The Android app now supports a built-in WebView-based bypass for heavily protected pages. When you select "CF" bypass mode the app will load the target page in a WebView, capture the fully-rendered HTML, and feed it into the scraper so media behind JS/CF challenges can be extracted.
+
+Tips:
+- Start with `STANDARD` mode; use `STEALTH` for IP-block protection.
+- Use `CF` only when you encounter 403 or JS challenges; it uses WebView rendering (slower) but is effective.
+
+---
+Updated Android guide is also embedded in the app (`android_build/app/src/main/assets/TUTORIAL.md`).
+
 ## Gallery Viewer
 
 After downloading, an interactive HTML gallery is automatically generated.
