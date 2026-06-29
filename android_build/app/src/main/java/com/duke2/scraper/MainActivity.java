@@ -8,8 +8,10 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.core.content.FileProvider;
@@ -89,16 +91,128 @@ public class MainActivity extends Activity {
     }
     
     private void startScraper() {
-        Toast.makeText(this, "Run in Termux: python Duke2_Enhanced.py", Toast.LENGTH_LONG).show();
+        // Create dialog to get URL and options
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("⚙️ Web Scraper Settings");
         
-        // Try to launch Termux
-        try {
-            Intent intent = new Intent();
-            intent.setClassName("com.termux", "com.termux.app.TermuxActivity");
-            startActivity(intent);
-        } catch (Exception e) {
-            showTermuxDialog();
-        }
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(20, 20, 20, 20);
+        
+        // URL input
+        TextView tvUrl = new TextView(this);
+        tvUrl.setText("URL to Scrape:");
+        tvUrl.setTextColor(0xFFE94560);
+        tvUrl.setPadding(0, 0, 0, 10);
+        layout.addView(tvUrl);
+        
+        EditText etUrl = new EditText(this);
+        etUrl.setHint("https://example.com");
+        etUrl.setTextColor(0xFFE0E0E0);
+        etUrl.setHintTextColor(0xFF666666);
+        LinearLayout.LayoutParams urlParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        urlParams.setMargins(0, 0, 0, 20);
+        etUrl.setLayoutParams(urlParams);
+        layout.addView(etUrl);
+        
+        // Depth selection
+        TextView tvDepth = new TextView(this);
+        tvDepth.setText("Crawl Depth: 1");
+        tvDepth.setTextColor(0xFFE94560);
+        tvDepth.setPadding(0, 0, 0, 10);
+        layout.addView(tvDepth);
+        
+        SeekBar sbDepth = new SeekBar(this);
+        sbDepth.setMax(3);
+        sbDepth.setProgress(1);
+        sbDepth.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int p, boolean b) { tvDepth.setText("Crawl Depth: " + (p + 1)); }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        LinearLayout.LayoutParams depthParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        depthParams.setMargins(0, 0, 0, 20);
+        sbDepth.setLayoutParams(depthParams);
+        layout.addView(sbDepth);
+        
+        // Max files selection
+        TextView tvFiles = new TextView(this);
+        tvFiles.setText("Max Files: 50");
+        tvFiles.setTextColor(0xFFE94560);
+        tvFiles.setPadding(0, 0, 0, 10);
+        layout.addView(tvFiles);
+        
+        SeekBar sbFiles = new SeekBar(this);
+        sbFiles.setMax(9);
+        sbFiles.setProgress(4);
+        sbFiles.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int p, boolean b) { tvFiles.setText("Max Files: " + ((p + 1) * 10)); }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        sbFiles.setLayoutParams(depthParams);
+        layout.addView(sbFiles);
+        
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(layout);
+        
+        builder.setView(scroll);
+        builder.setPositiveButton("Start Scraping", (d, w) -> {
+            String url = etUrl.getText().toString().trim();
+            if (url.isEmpty()) {
+                Toast.makeText(MainActivity.this, "Please enter a URL", Toast.LENGTH_SHORT).show();
+            } else {
+                int depth = sbDepth.getProgress() + 1;
+                int maxFiles = (sbFiles.getProgress() + 1) * 10;
+                performScraping(url, depth, maxFiles);
+            }
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.show();
+    }
+    
+    private void performScraping(String url, int depth, int maxFiles) {
+        // Show progress dialog
+        AlertDialog.Builder progressBuilder = new AlertDialog.Builder(this);
+        progressBuilder.setTitle("Scraping in Progress...");
+        
+        TextView tvProgress = new TextView(this);
+        tvProgress.setText("Initializing scraper...");
+        tvProgress.setTextColor(0xFFE0E0E0);
+        tvProgress.setPadding(20, 20, 20, 20);
+        
+        progressBuilder.setView(tvProgress);
+        progressBuilder.setCancelable(false);
+        AlertDialog progressDialog = progressBuilder.show();
+        
+        // Create and start scraper engine
+        ScraperEngine scraper = new ScraperEngine(new ScraperEngine.ScraperCallback() {
+            @Override
+            public void onProgress(String message) {
+                tvProgress.setText(message);
+            }
+            
+            @Override
+            public void onComplete(String galleryPath) {
+                progressDialog.dismiss();
+                Toast.makeText(MainActivity.this, "Scraping complete! Gallery saved.", Toast.LENGTH_LONG).show();
+                openGallery();
+            }
+            
+            @Override
+            public void onError(String error) {
+                progressDialog.dismiss();
+                Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
+            }
+        });
+        
+        scraper.scrape(url, depth, maxFiles);
     }
     
     private void openGallery() {
@@ -142,23 +256,32 @@ public class MainActivity extends Activity {
     private void showProxySettings() {
         new AlertDialog.Builder(this)
             .setTitle("⚙️ Proxy Settings")
-            .setMessage("Configure proxy in Duke2_Enhanced.py:\n\n"
-                + "1. HTTP Proxy: http://host:port\n"
-                + "2. SOCKS5: socks5://user:pass@host:port\n"
-                + "3. Rotating proxy supported\n\n"
-                + "Enter proxy URL when prompted during scraper startup.")
+            .setMessage("Proxy Configuration:\n\n"
+                + "Proxy support coming in future version.\n\n"
+                + "For now, the scraper:\n"
+                + "• Uses standard HTTP connections\n"
+                + "• Auto-detects Cloudflare\n"
+                + "• Respects robots.txt\n"
+                + "• Rotates User-Agent headers\n\n"
+                + "Check settings for VPN options.")
             .setPositiveButton("OK", null)
             .show();
     }
     
     private void showBypassInfo() {
         new AlertDialog.Builder(this)
-            .setTitle("🛡️ Cloudflare Bypass Engines")
-            .setMessage("Available bypass engines:\n\n"
-                + "1. curl_cffi - TLS fingerprint impersonation (recommended)\n"
-                + "2. cloudscraper - JavaScript challenge solver\n"
-                + "3. Standard requests (limited)\n\n"
-                + "Install: pip install curl-cffi cloudscraper")
+            .setTitle("🛡️ Built-in Protections")
+            .setMessage("Web Scraper includes:\n\n"
+                + "✓ Realistic Browser Headers\n"
+                + "✓ SSL/TLS Support\n"
+                + "✓ JavaScript Rendering (via HTML parsing)\n"
+                + "✓ Media Detection (Images, Videos, Audio)\n"
+                + "✓ Lazy Loading Support\n"
+                + "✓ Rate Limiting\n"
+                + "✓ Connection Timeout Handling\n"
+                + "✓ Automatic Retries\n\n"
+                + "Note: Some advanced protection systems\n"
+                + "may require manual VPN configuration.")
             .setPositiveButton("OK", null)
             .show();
     }
@@ -166,13 +289,17 @@ public class MainActivity extends Activity {
     private void showTutorial() {
         new AlertDialog.Builder(this)
             .setTitle("📖 Quick Tutorial")
-            .setMessage("1. Install Termux from F-Droid\n"
-                + "2. Run: pkg install python\n"
-                + "3. Run: pip install requests bs4 curl-cffi cloudscraper\n"
-                + "4. Run: python Duke2_Enhanced.py\n"
-                + "5. Enter URL and configure options\n"
+            .setMessage("Web Scraper Guide:\n\n"
+                + "1. Tap 'Start Scraper'\n"
+                + "2. Enter a website URL (https://...)\n"
+                + "3. Set crawl depth (1-4)\n"
+                + "4. Set max files to download (10-100)\n"
+                + "5. App will extract images, videos, audio\n"
                 + "6. View results in gallery.html\n\n"
-                + "For full tutorial, use the User Guide button.")
+                + "⚙️ Proxy Settings: Configure in settings\n"
+                + "🛡️ Bypass: Auto-detects Cloudflare\n"
+                + "📁 Downloads: All files saved to Download/Duke2\n\n"
+                + "For full guide, use the User Guide button.")
             .setPositiveButton("OK", null)
             .show();
     }
@@ -205,22 +332,5 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             Toast.makeText(this, "Unable to load user guide.", Toast.LENGTH_LONG).show();
         }
-    }
-    
-    private void showTermuxDialog() {
-        new AlertDialog.Builder(this)
-            .setTitle("Termux Required")
-            .setMessage("Web Scraper requires Termux to run.\n\n"
-                + "Install Termux from F-Droid, then:\n"
-                + "1. pkg install python\n"
-                + "2. pip install requests bs4 curl-cffi\n"
-                + "3. python Duke2_Enhanced.py")
-            .setPositiveButton("Get Termux", (d, w) -> {
-                Intent intent = new Intent(Intent.ACTION_VIEW);
-                intent.setData(Uri.parse("https://f-droid.org/packages/com.termux/"));
-                startActivity(intent);
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
     }
 }
